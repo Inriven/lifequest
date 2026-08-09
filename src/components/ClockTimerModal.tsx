@@ -1,97 +1,305 @@
-import { Pause, Play, RotateCcw, X } from 'lucide-react'
-import { PointerEvent, useMemo, useRef, useState } from 'react'
+import { Pause, Play, Square, X } from 'lucide-react'
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { audio } from '../lib/audio'
+import {
+  applyHour12Snap,
+  applyMinuteSnap,
+  clampDurationMinutes,
+  formatHm,
+  hourAngle,
+  isQuarterHour,
+  minuteAngle,
+  MINUTES_PER_DAY,
+  normalizeMod,
+  parseHm,
+  pointerDegrees,
+  snapHour12FromDegrees,
+  snapMinuteFromDegrees,
+} from '../lib/clockMath'
 import { useTimerStore } from '../features/timer/timerStore'
+import { useTaskStore } from '../features/tasks/taskStore'
 
 type Mode = 'time' | 'timer'
 
-const normalize = (value: number, max: number) => ((value % max) + max) % max
+function hapticSnap(strong = false) {
+  if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+    navigator.vibrate(strong ? [10, 20, 10] : 8)
+  }
+}
 
-export function ClockTimerModal({ taskId, taskTitle, onClose }: { taskId: string; taskTitle: string; onClose: () => void }) {
-  const [mode, setMode] = useState<Mode>('timer')
-  const [minutesOfDay, setMinutesOfDay] = useState(10 * 60 + 30)
-  const [durationMin, setDurationMin] = useState(45)
-  const dragRef = useRef<'minute' | 'hour' | null>(null)
-  const lastSnapRef = useRef<number | null>(null)
+function playSnap(minute: number) {
+  audio.play('timer.tick')
+  hapticSnap(isQuarterHour(minute))
+}
+
+export function ClockTimerModal({
+  taskId,
+  taskTitle,
+  onClose,
+}: {
+  taskId: string
+  taskTitle: string
+  onClose: () => void
+}) {
   const timer = useTimerStore()
+  const setTaskTime = useTaskStore((s) => s.setTaskTime)
+  const task = useTaskStore((s) => s.tasks.find((item) => item.id === taskId))
 
-  const clockMinutes = mode === 'time' ? minutesOfDay : durationMin
-  const hour = mode === 'time' ? Math.floor(clockMinutes / 60) % 24 : Math.floor(clockMinutes / 60) % 12
-  const minute = clockMinutes % 60
-  const minuteAngle = minute * 6
-  const hourAngle = ((hour % 12) + minute / 60) * 30
+  const [mode, setMode] = useState<Mode>('timer')
+  const [totalMinutes, setTotalMinutes] = useState(() => {
+    if (task?.time) {
+      const parsed = parseHm(task.time)
+      if (parsed != null) return normalizeMod(parsed, MINUTES_PER_DAY)
+    }
+    return 10 * 60 + 30
+  })
+  const [durationMin, setDurationMin] = useState(() => Math.max(5, task?.minutes ?? 45))
+  const [digitalDraft, setDigitalDraft] = useState('')
 
-  const label = useMemo(() => mode === 'time'
-    ? `${hour.toString().padStart(2,'0')}:${minute.toString().padStart(2,'0')}`
-    : `${Math.floor(durationMin/60).toString().padStart(2,'0')}:${(durationMin%60).toString().padStart(2,'0')}:00`, [mode, hour, minute, durationMin])
+  const faceRef = useRef<HTMLDivElement>(null)
+  const dragRef = useRef<'minute' | 'hour' | null>(null)
+  const lastMinuteRef = useRef(0)
+  const lastHour12Ref = useRef(0)
+  const lastSnapMinuteRef = useRef<number | null>(null)
 
-  const updateFromPointer = (e: PointerEvent<HTMLDivElement>) => {
-    if (!dragRef.current) return
-    const rect = e.currentTarget.getBoundingClientRect()
-    const cx = rect.left + rect.width / 2
-    const cy = rect.top + rect.height / 2
-    let deg = Math.atan2(e.clientY - cy, e.clientX - cx) * 180 / Math.PI + 90
-    deg = normalize(deg, 360)
+  const sourceMinutes = mode === 'time' ? totalMinutes : durationMin
+  const displayMinute = normalizeMod(sourceMinutes, 60)
+  const mAngle = minuteAngle(displayMinute)
+  const hAngle = hourAngle(sourceMinutes)
+  const digital = mode === 'time'
+    ? formatHm(totalMinutes, 24)
+    : `${formatHm(durationMin, 12)}:00`
 
-    if (dragRef.current === 'minute') {
-      const snappedMinute = normalize(Math.round(deg / 30) * 5, 60)
-      if (lastSnapRef.current !== snappedMinute) {
-        audio.play('timer.tick')
-        lastSnapRef.current = snappedMinute
-      }
-      if (mode === 'time') {
-        setMinutesOfDay((current) => {
-          const currentMinute = current % 60
-          const currentHour = Math.floor(current / 60)
-          let hourDelta = 0
-          if (currentMinute >= 45 && snappedMinute <= 15) hourDelta = 1
-          if (currentMinute <= 15 && snappedMinute >= 45) hourDelta = -1
-          return normalize((currentHour + hourDelta) * 60 + snappedMinute, 24 * 60)
-        })
-      } else {
-        setDurationMin((current) => {
-          const currentMinute = current % 60
-          const currentHour = Math.floor(current / 60)
-          let hourDelta = 0
-          if (currentMinute >= 45 && snappedMinute <= 15) hourDelta = 1
-          if (currentMinute <= 15 && snappedMinute >= 45) hourDelta = -1
-          return Math.max(5, Math.min(12 * 60, (currentHour + hourDelta) * 60 + snappedMinute))
-        })
-      }
+  useEffect(() => {
+    setDigitalDraft(mode === 'time' ? formatHm(totalMinutes, 24) : formatHm(durationMin, 12))
+  }, [mode, totalMinutes, durationMin])
+
+  const commitDigital = () => {
+    const parsed = parseHm(digitalDraft)
+    if (parsed == null) {
+      setDigitalDraft(mode === 'time' ? formatHm(totalMinutes, 24) : formatHm(durationMin, 12))
+      return
+    }
+    if (mode === 'time') {
+      setTotalMinutes(normalizeMod(parsed, MINUTES_PER_DAY))
     } else {
-      const snappedHour = Math.round(deg / 30) % 12
-      if (mode === 'time') {
-        setMinutesOfDay((current) => {
-          const currentHour = Math.floor(current / 60)
-          const cycle = currentHour >= 12 ? 12 : 0
-          return normalize((cycle + snappedHour) * 60 + (current % 60), 24 * 60)
-        })
-      } else {
-        setDurationMin((current) => Math.max(5, snappedHour * 60 + (current % 60)))
-      }
-      audio.play('timer.tick')
+      setDurationMin(clampDurationMinutes(Math.max(5, parsed)))
     }
   }
 
+  const beginDrag = (hand: 'minute' | 'hour', event: ReactPointerEvent<HTMLButtonElement>) => {
+    event.preventDefault()
+    event.stopPropagation()
+    dragRef.current = hand
+    lastMinuteRef.current = displayMinute
+    lastHour12Ref.current = Math.floor(sourceMinutes / 60) % 12
+    lastSnapMinuteRef.current = displayMinute
+    faceRef.current?.setPointerCapture(event.pointerId)
+  }
+
+  const updateFromPointer = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!dragRef.current || !faceRef.current) return
+    const rect = faceRef.current.getBoundingClientRect()
+    const cx = rect.left + rect.width / 2
+    const cy = rect.top + rect.height / 2
+    const deg = pointerDegrees(event.clientX, event.clientY, cx, cy)
+
+    if (dragRef.current === 'minute') {
+      const snappedMinute = snapMinuteFromDegrees(deg)
+      if (lastSnapMinuteRef.current === snappedMinute) return
+      playSnap(snappedMinute)
+      lastSnapMinuteRef.current = snappedMinute
+
+      if (mode === 'time') {
+        const next = normalizeMod(applyMinuteSnap(totalMinutes, snappedMinute, lastMinuteRef.current), MINUTES_PER_DAY)
+        lastMinuteRef.current = snappedMinute
+        setTotalMinutes(next)
+      } else {
+        const next = clampDurationMinutes(applyMinuteSnap(durationMin, snappedMinute, lastMinuteRef.current))
+        lastMinuteRef.current = normalizeMod(next, 60)
+        setDurationMin(next)
+      }
+      return
+    }
+
+    const snappedHour12 = snapHour12FromDegrees(deg)
+    if (snappedHour12 === lastHour12Ref.current) return
+    audio.play('timer.tick')
+    hapticSnap(false)
+
+    if (mode === 'time') {
+      const next = normalizeMod(applyHour12Snap(totalMinutes, snappedHour12, lastHour12Ref.current), MINUTES_PER_DAY)
+      lastHour12Ref.current = snappedHour12
+      setTotalMinutes(next)
+    } else {
+      const next = clampDurationMinutes(applyHour12Snap(durationMin, snappedHour12, lastHour12Ref.current))
+      lastHour12Ref.current = Math.floor(next / 60) % 12
+      setDurationMin(next)
+    }
+  }
+
+  const endDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (faceRef.current?.hasPointerCapture(event.pointerId)) {
+      faceRef.current.releasePointerCapture(event.pointerId)
+    }
+    dragRef.current = null
+    lastSnapMinuteRef.current = null
+  }
+
+  const linkedToActive = timer.status !== 'idle' && timer.taskId === taskId
+  const dialogRef = useRef<HTMLDialogElement>(null)
+
+  useEffect(() => {
+    const dialog = dialogRef.current
+    if (!dialog) return
+    if (!dialog.open) dialog.showModal()
+    const onCancel = (event: Event) => {
+      event.preventDefault()
+      onClose()
+    }
+    dialog.addEventListener('cancel', onCancel)
+    return () => dialog.removeEventListener('cancel', onCancel)
+  }, [onClose])
+
   return (
-    <div className="modal-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
-      <section className="clock-modal" role="dialog" aria-modal="true">
-        <header><div><small>РЕЖИМ МИССИИ</small><h2>{taskTitle}</h2></div><button className="icon-button" onClick={onClose}><X/></button></header>
-        <div className="segmented"><button className={mode==='timer'?'active':''} onClick={()=>setMode('timer')}>Таймер</button><button className={mode==='time'?'active':''} onClick={()=>setMode('time')}>Время</button></div>
-        <div className="clock-face" onPointerMove={updateFromPointer} onPointerUp={() => { dragRef.current = null; lastSnapRef.current = null }} onPointerLeave={() => { dragRef.current = null; lastSnapRef.current = null }}>
-          <div className="clock-ring"/>
-          <button className="clock-hand hour" style={{ transform: `translateX(-50%) rotate(${hourAngle}deg)` }} onPointerDown={(e)=>{e.currentTarget.setPointerCapture(e.pointerId); dragRef.current='hour'}} aria-label="Часовая стрелка"><i/></button>
-          <button className="clock-hand minute" style={{ transform: `translateX(-50%) rotate(${minuteAngle}deg)` }} onPointerDown={(e)=>{e.currentTarget.setPointerCapture(e.pointerId); dragRef.current='minute'}} aria-label="Минутная стрелка"><i/></button>
-          <div className="clock-pin"/>
+    <dialog
+      ref={dialogRef}
+      className="modal-backdrop"
+      aria-label="Часы и таймер"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose()
+      }}
+    >
+      <section className="clock-modal">
+        <header>
+          <div>
+            <small>РЕЖИМ МИССИИ</small>
+            <h2>{taskTitle}</h2>
+          </div>
+          <button type="button" className="icon-button" onClick={onClose} aria-label="Закрыть">
+            <X />
+          </button>
+        </header>
+
+        <div className="segmented" role="tablist" aria-label="Режим">
+          <button type="button" role="tab" aria-selected={mode === 'timer'} className={mode === 'timer' ? 'active' : ''} onClick={() => setMode('timer')}>
+            Таймер
+          </button>
+          <button type="button" role="tab" aria-selected={mode === 'time'} className={mode === 'time' ? 'active' : ''} onClick={() => setMode('time')}>
+            Время
+          </button>
         </div>
-        <div className="clock-value">{label}</div>
+
+        <p className="mode-caption">
+          {mode === 'timer'
+            ? 'Сколько работать над задачей.'
+            : 'Когда выполнить задачу в течение дня.'}
+        </p>
+
+        <div
+          ref={faceRef}
+          className="clock-face"
+          onPointerMove={updateFromPointer}
+          onPointerUp={endDrag}
+          onPointerCancel={endDrag}
+        >
+          <div className="clock-ring" aria-hidden="true" />
+          <button
+            type="button"
+            className="clock-hand hour"
+            style={{ transform: `translateX(-50%) rotate(${hAngle}deg)` }}
+            onPointerDown={(e) => beginDrag('hour', e)}
+            aria-label="Часовая стрелка"
+          >
+            <i />
+          </button>
+          <button
+            type="button"
+            className="clock-hand minute"
+            style={{ transform: `translateX(-50%) rotate(${mAngle}deg)` }}
+            onPointerDown={(e) => beginDrag('minute', e)}
+            aria-label="Минутная стрелка"
+          >
+            <i />
+          </button>
+          <div className="clock-pin" aria-hidden="true" />
+        </div>
+
+        <div className="clock-value" aria-live="polite">{digital}</div>
+
+        <label className="digital-field">
+          <span>{mode === 'time' ? 'Точное время' : 'Длительность'}</span>
+          <input
+            value={digitalDraft}
+            inputMode="numeric"
+            placeholder="HH:MM"
+            onChange={(e) => setDigitalDraft(e.target.value)}
+            onBlur={commitDigital}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.currentTarget.blur()
+              }
+            }}
+            aria-label={mode === 'time' ? 'Ввести время' : 'Ввести длительность'}
+          />
+        </label>
+
         {mode === 'timer' ? (
           <div className="modal-actions">
-            <button className="secondary" onClick={() => setDurationMin(45)}><RotateCcw size={17}/> 45 минут</button>
-            {timer.status === 'idle' ? <button className="primary" onClick={() => { timer.start(taskId, taskTitle, durationMin*60_000); onClose() }}><Play size={18}/> Запустить</button> : <button className="primary" onClick={timer.status === 'running' ? timer.pause : timer.resume}>{timer.status === 'running' ? <Pause size={18}/> : <Play size={18}/>} {timer.status === 'running' ? 'Пауза' : 'Продолжить'}</button>}
+            <button type="button" className="secondary" onClick={() => setDurationMin(45)}>
+              45 минут
+            </button>
+            {linkedToActive ? (
+              <>
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={timer.status === 'running' ? timer.pause : timer.resume}
+                >
+                  {timer.status === 'running' ? <Pause size={18} /> : <Play size={18} />}
+                  {timer.status === 'running' ? 'Пауза' : 'Продолжить'}
+                </button>
+                <button
+                  type="button"
+                  className="primary"
+                  onClick={() => {
+                    timer.stop()
+                    onClose()
+                  }}
+                >
+                  <Square size={17} />
+                  Стоп
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                className="primary"
+                onClick={() => {
+                  timer.start(taskId, taskTitle, durationMin * 60_000)
+                  onClose()
+                }}
+              >
+                <Play size={18} />
+                Старт
+              </button>
+            )}
           </div>
-        ) : <div className="hint">Вращай минутную стрелку: часовая следует за временем автоматически.</div>}
+        ) : (
+          <div className="modal-actions">
+            <button
+              type="button"
+              className="primary"
+              onClick={() => {
+                setTaskTime(taskId, formatHm(totalMinutes, 24))
+                onClose()
+              }}
+            >
+              Сохранить время
+            </button>
+          </div>
+        )}
       </section>
-    </div>
+    </dialog>
   )
 }

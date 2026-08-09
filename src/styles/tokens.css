@@ -13,16 +13,28 @@
   --gold: #d9bf78;
   --cyan: #8ed5e5;
   --danger: #d98585;
-  --sidebar: 232px;
+  --sidebar: 248px;
   --topbar: 64px;
   --radius-sm: 10px;
   --radius: 16px;
   --radius-lg: 24px;
   --shadow: 0 20px 70px rgba(0,0,0,.28);
+  --font-body: 17px;
+  --font-secondary: 14px;
+  --font-button: 17px;
+  --font-section: 22px;
+  --font-title: clamp(40px, 4vw, 48px);
+  --font-title-mobile: clamp(30px, 8vw, 36px);
 }
 
 * { box-sizing: border-box; }
 html, body, #root { margin: 0; min-width: 320px; min-height: 100%; height: 100%; }
-body { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--text); background: var(--bg-0); font-size: 17px; }
+body {
+  font-family: "Segoe UI", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  color: var(--text);
+  background: var(--bg-0);
+  font-size: var(--font-body);
+  line-height: 1.45;
+}
 button, input { font: inherit; }
 button { color: inherit; }

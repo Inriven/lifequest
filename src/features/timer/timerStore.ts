@@ -15,28 +15,36 @@ type TimerState = {
   pause: () => void
   resume: () => void
   stop: () => void
+  finish: () => void
   remainingMs: (now?: number) => number
+}
+
+const idleState = {
+  taskId: null as string | null,
+  taskTitle: '',
+  durationMs: 0,
+  startedAt: null as number | null,
+  pausedAt: null as number | null,
+  accumulatedPauseMs: 0,
+  status: 'idle' as TimerStatus,
 }
 
 export const useTimerStore = create<TimerState>()(
   persist(
     (set, get) => ({
-      taskId: null,
-      taskTitle: '',
-      durationMs: 0,
-      startedAt: null,
-      pausedAt: null,
-      accumulatedPauseMs: 0,
-      status: 'idle',
-      start: (taskId, taskTitle, durationMs) => set({
-        taskId,
-        taskTitle,
-        durationMs,
-        startedAt: Date.now(),
-        pausedAt: null,
-        accumulatedPauseMs: 0,
-        status: 'running',
-      }),
+      ...idleState,
+      start: (taskId, taskTitle, durationMs) => {
+        const safeDuration = Math.max(0, durationMs)
+        set({
+          taskId,
+          taskTitle,
+          durationMs: safeDuration,
+          startedAt: Date.now(),
+          pausedAt: null,
+          accumulatedPauseMs: 0,
+          status: 'running',
+        })
+      },
       pause: () => {
         if (get().status !== 'running') return
         set({ status: 'paused', pausedAt: Date.now() })
@@ -50,20 +58,13 @@ export const useTimerStore = create<TimerState>()(
           pausedAt: null,
         })
       },
-      stop: () => set({
-        taskId: null,
-        taskTitle: '',
-        durationMs: 0,
-        startedAt: null,
-        pausedAt: null,
-        accumulatedPauseMs: 0,
-        status: 'idle',
-      }),
+      stop: () => set({ ...idleState }),
+      finish: () => set({ ...idleState }),
       remainingMs: (now = Date.now()) => {
         const state = get()
         if (!state.startedAt || state.status === 'idle') return 0
         const effectiveNow = state.status === 'paused' && state.pausedAt ? state.pausedAt : now
-        const elapsed = effectiveNow - state.startedAt - state.accumulatedPauseMs
+        const elapsed = Math.max(0, effectiveNow - state.startedAt - state.accumulatedPauseMs)
         return Math.max(0, state.durationMs - elapsed)
       },
     }),

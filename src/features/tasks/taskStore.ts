@@ -2,13 +2,23 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
 export type TaskGroupId = 'main' | 'daily' | 'world' | 'side'
-export type Task = { id: string; title: string; group: TaskGroupId; time?: string; minutes: number; xp: number; done: boolean }
+export type Task = {
+  id: string
+  title: string
+  group: TaskGroupId
+  time?: string
+  minutes: number
+  xp: number
+  done: boolean
+}
 
 type TaskState = {
   collapsed: Record<TaskGroupId, boolean>
   tasks: Task[]
   toggleGroup: (group: TaskGroupId) => void
   toggleTask: (id: string) => void
+  setTaskTime: (id: string, time: string) => void
+  completeTask: (id: string) => void
 }
 
 const seed: Task[] = [
@@ -23,8 +33,18 @@ export const useTaskStore = create<TaskState>()(
     (set) => ({
       collapsed: { main: false, daily: false, world: true, side: true },
       tasks: seed,
-      toggleGroup: (group) => set((state) => ({ collapsed: { ...state.collapsed, [group]: !state.collapsed[group] } })),
-      toggleTask: (id) => set((state) => ({ tasks: state.tasks.map((task) => task.id === id ? { ...task, done: !task.done } : task) })),
+      toggleGroup: (group) => set((state) => ({
+        collapsed: { ...state.collapsed, [group]: !state.collapsed[group] },
+      })),
+      toggleTask: (id) => set((state) => ({
+        tasks: state.tasks.map((task) => (task.id === id ? { ...task, done: !task.done } : task)),
+      })),
+      setTaskTime: (id, time) => set((state) => ({
+        tasks: state.tasks.map((task) => (task.id === id ? { ...task, time } : task)),
+      })),
+      completeTask: (id) => set((state) => ({
+        tasks: state.tasks.map((task) => (task.id === id ? { ...task, done: true } : task)),
+      })),
     }),
     { name: 'lifequest-task-state-v1' },
   ),
