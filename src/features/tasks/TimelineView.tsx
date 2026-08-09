@@ -3,14 +3,11 @@ import { useTaskStore } from './taskStore'
 import { useUiStore } from '../ui/uiStore'
 import { DifficultyDots } from './DifficultyDots'
 import { Play } from 'lucide-react'
-import { useTimerStore } from '../timer/timerStore'
+import { startTaskTimer } from '../timer/startTaskTimer'
 
 export function TimelineView() {
   const tasks = useTaskStore((s) => s.tasks)
-  const setTaskActive = useTaskStore((s) => s.setTaskActive)
   const openTaskDetails = useUiStore((s) => s.openTaskDetails)
-  const openClock = useUiStore((s) => s.openClock)
-  const startTimer = useTimerStore((s) => s.start)
   const timed = selectTimelineTasks(tasks)
 
   return (
@@ -43,11 +40,8 @@ export function TimelineView() {
                   type="button"
                   className="start-button"
                   aria-label="Запустить таймер"
-                  onClick={() => {
-                    setTaskActive(task.id)
-                    startTimer(task.id, task.title, task.estimatedMinutes * 60_000)
-                    openClock({ id: task.id, title: task.title })
-                  }}
+                  disabled={isDone(task)}
+                  onClick={() => startTaskTimer(task.id, task.title, task.estimatedMinutes * 60_000)}
                 >
                   <Play size={17} />
                 </button>

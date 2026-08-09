@@ -2,19 +2,16 @@ import { Play, Trash2, X } from 'lucide-react'
 import { useEffect, useMemo, useRef } from 'react'
 import { GROUP_META, todayISO, type TaskDifficulty, type TaskGroupId, type TaskStatus } from './taskModel'
 import { useTaskStore } from './taskStore'
-import { useTimerStore } from '../timer/timerStore'
 import { useUiStore } from '../ui/uiStore'
+import { startTaskTimer } from '../timer/startTaskTimer'
 
 export function TaskDetails() {
   const selectedTaskId = useUiStore((s) => s.selectedTaskId)
   const closeTaskDetails = useUiStore((s) => s.closeTaskDetails)
-  const openClock = useUiStore((s) => s.openClock)
   const tasks = useTaskStore((s) => s.tasks)
   const updateTask = useTaskStore((s) => s.updateTask)
   const deleteTask = useTaskStore((s) => s.deleteTask)
   const assignToToday = useTaskStore((s) => s.assignToToday)
-  const setTaskActive = useTaskStore((s) => s.setTaskActive)
-  const startTimer = useTimerStore((s) => s.start)
   const dialogRef = useRef<HTMLDialogElement>(null)
 
   const task = useMemo(
@@ -38,9 +35,7 @@ export function TaskDetails() {
   if (!task) return null
 
   const start = () => {
-    setTaskActive(task.id)
-    startTimer(task.id, task.title, task.estimatedMinutes * 60_000)
-    openClock({ id: task.id, title: task.title })
+    startTaskTimer(task.id, task.title, task.estimatedMinutes * 60_000)
   }
 
   return (

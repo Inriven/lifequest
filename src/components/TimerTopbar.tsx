@@ -1,8 +1,8 @@
-import { Pause, Play, Square } from 'lucide-react'
+import { Check, Pause, Play, Square } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useTimerStore } from '../features/timer/timerStore'
 import { useUiStore } from '../features/ui/uiStore'
-import { useTaskStore } from '../features/tasks/taskStore'
+import { finishActiveTimer } from '../features/timer/startTaskTimer'
 
 function format(ms: number) {
   const total = Math.max(0, Math.ceil(ms / 1000))
@@ -18,10 +18,8 @@ export function TimerTopbar() {
   const pause = useTimerStore((s) => s.pause)
   const resume = useTimerStore((s) => s.resume)
   const stop = useTimerStore((s) => s.stop)
-  const finish = useTimerStore((s) => s.finish)
   const remainingMs = useTimerStore((s) => s.remainingMs)
   const openClock = useUiStore((s) => s.openClock)
-  const completeTask = useTaskStore((s) => s.completeTask)
   const [, setTick] = useState(0)
 
   useEffect(() => {
@@ -31,11 +29,10 @@ export function TimerTopbar() {
       const store = useTimerStore.getState()
       if (store.status === 'idle') return
       if (store.remainingMs() > 0) return
-      if (store.taskId) completeTask(store.taskId)
-      finish()
+      finishActiveTimer()
     }, 250)
     return () => window.clearInterval(id)
-  }, [status, completeTask, finish])
+  }, [status])
 
   if (status === 'idle' || !taskId) return null
   const remaining = remainingMs()
@@ -59,7 +56,16 @@ export function TimerTopbar() {
       >
         {status === 'running' ? <Pause size={18} /> : <Play size={18} />}
       </button>
-      <button type="button" className="icon-button" onClick={stop} aria-label="Остановить таймер">
+      <button
+        type="button"
+        className="icon-button"
+        onClick={() => finishActiveTimer()}
+        aria-label="Завершить задачу и таймер"
+        title="Finish"
+      >
+        <Check size={17} />
+      </button>
+      <button type="button" className="icon-button" onClick={stop} aria-label="Остановить таймер" title="Stop">
         <Square size={17} />
       </button>
     </div>

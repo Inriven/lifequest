@@ -1,12 +1,36 @@
-/** Pure clock helpers. Hands are views of totalMinutes, never independent state. */
+/** Pure clock helpers. Hands are views of totalMinutes, never independent state.
+ *
+ * Angle contract (must match CSS):
+ * - 0° points to 12 o'clock
+ * - angles increase clockwise
+ * - minuteAngle = minutes * 6
+ * - hourAngle = ((hours % 12) + minutes / 60) * 30
+ *
+ * CSS hands must pivot at the dial center and extend upward at rotate(0).
+ */
 
 export const MINUTES_PER_DAY = 24 * 60
 export const MINUTES_PER_CLOCK = 12 * 60
+/** Documented visual contract for AnalogClock CSS. */
+export const CLOCK_ZERO_DEG_HOUR = 12 as const
 
 export function normalizeMod(value: number, max: number): number {
   return ((value % max) + max) % max
 }
 
+/** Shortest signed delta on a circle, in (-half, half]. */
+export function shortestDelta(from: number, to: number, period: number): number {
+  let delta = to - from
+  const half = period / 2
+  if (delta > half) delta -= period
+  if (delta <= -half) delta += period
+  return delta
+}
+
+/**
+ * Pointer angle relative to dial center.
+ * 12 o'clock = 0°, clockwise positive (3 = 90°, 6 = 180°, 9 = 270°).
+ */
 export function pointerDegrees(clientX: number, clientY: number, cx: number, cy: number): number {
   const deg = (Math.atan2(clientY - cy, clientX - cx) * 180) / Math.PI + 90
   return normalizeMod(deg, 360)
@@ -34,19 +58,16 @@ export function hourAngle(totalMinutes: number): number {
 /**
  * Apply a snapped minute while preserving continuous hour motion.
  * Crossing 55→00 advances the hour; 00→55 goes back.
+ * Uses shortest-path across the 359°↔0° / 55↔00 boundary.
  */
 export function applyMinuteSnap(totalMinutes: number, snappedMinute: number, previousMinute: number): number {
-  let delta = snappedMinute - previousMinute
-  if (delta > 30) delta -= 60
-  if (delta < -30) delta += 60
+  const delta = shortestDelta(previousMinute, snappedMinute, 60)
   return totalMinutes + delta
 }
 
 /** Apply a 12-hour hand snap with wrap across 11↔0. */
 export function applyHour12Snap(totalMinutes: number, snappedHour12: number, previousHour12: number): number {
-  let delta = snappedHour12 - previousHour12
-  if (delta > 6) delta -= 12
-  if (delta < -6) delta += 12
+  const delta = shortestDelta(previousHour12, snappedHour12, 12)
   return totalMinutes + delta * 60
 }
 
@@ -73,4 +94,13 @@ export function clampDurationMinutes(totalMinutes: number, min = 5, max = MINUTE
 
 export function isQuarterHour(minute: number): boolean {
   return minute % 15 === 0
+}
+
+/** Angles for a wall-clock reading; used by visual QA asserts. */
+export function anglesForHm(hours: number, minutes: number): { minute: number; hour: number } {
+  const total = hours * 60 + minutes
+  return {
+    minute: minuteAngle(minutes),
+    hour: hourAngle(total),
+  }
 }
