@@ -53,7 +53,7 @@ export function ClockTimerModal({
     }
     return 10 * 60 + 30
   })
-  const [durationMin, setDurationMin] = useState(() => Math.max(5, task?.minutes ?? 45))
+  const [durationMin, setDurationMin] = useState(() => Math.max(5, task?.estimatedMinutes ?? 45))
   const [digitalDraft, setDigitalDraft] = useState('')
 
   const faceRef = useRef<HTMLDivElement>(null)
